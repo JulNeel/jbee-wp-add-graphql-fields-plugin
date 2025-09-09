@@ -6,58 +6,134 @@
  * Author: Julien Bruneel
  */
 
-
-function register_graphql_media_field($field_name, $description, callable $id_callback)
-{
-  register_graphql_field('RootQuery', $field_name, [
-    'type' => 'MediaItem',
-    'description' => $description,
-    'resolve' => function () use ($id_callback, $field_name) {
-      $attachment_id = call_user_func($id_callback);
-
-      if (!$attachment_id) {
-        error_log("[GraphQL] Aucun média pour {$field_name}");
-        return null;
-      }
-
-      $post = get_post($attachment_id);
-
-      if (!$post || $post->post_type !== 'attachment') {
-        error_log("[GraphQL] L’ID {$attachment_id} n’est pas un attachment ({$field_name})");
-        return null;
-      }
-
-      return $post;
-    }
-  ]);
+if (!defined('ABSPATH')) {
+  exit; // direct access
 }
 
+/**
+ * Register all fields when WPGraphQL is available.
+ */
+function jbee_register_fields()
+{
+  // bail early if WPGraphQL functions/classes are not available
+  if (!function_exists('register_graphql_field')) {
+    error_log('[WPGraphQL Site Media] register_graphql_field() non disponible — WPGraphQL probablement non activé');
+    return;
+  }
 
-add_action('graphql_register_types', function () {
-  // Logo
-  register_graphql_media_field(
-    'siteLogo',
-    'Logo du site en tant que MediaItem',
-    fn() => get_theme_mod('custom_logo')
-  );
+  // Ensure the GraphQL Post model exists
+  if (!class_exists('\\WPGraphQL\\Model\\Post')) {
+    error_log('[WPGraphQL Site Media] WPGraphQL\\Model\\Post non disponible — compatibilité requise');
+    // we'll still register fields but resolvers will return null
+  }
 
-  // Favicon 
-  register_graphql_media_field(
-    'siteFavicon',
-    'Favicon du site en tant que MediaItem',
-    fn() => get_option('site_icon')
-  );
+  // siteLogo
+  register_graphql_field('RootQuery', 'siteLogo', [
+    'type' => 'MediaItem',
+    'description' => 'Logo du site en tant que MediaItem',
+    'resolve' => function () {
+      $logo_id = get_theme_mod('custom_logo');
 
-  // Image d’en-tête
-  register_graphql_media_field(
-    'siteHeaderImage',
-    'Image d’en-tête du site en tant que MediaItem',
-    function () {
-      if (!function_exists('get_custom_header')) {
+      if (!$logo_id) {
+        error_log('[WPGraphQL Site Media] Aucun logo défini');
         return null;
       }
+
+      $post = get_post($logo_id);
+
+      if (!$post || $post->post_type !== 'attachment') {
+        error_log("[WPGraphQL Site Media] L'ID $logo_id n'est pas un attachment");
+        return null;
+      }
+
+      if (class_exists('\\WPGraphQL\\Model\\Post')) {
+        return new \WPGraphQL\Model\Post($post);
+      }
+
+      return null;
+    },
+  ]);
+
+  // siteHeaderImage
+  register_graphql_field('RootQuery', 'siteHeaderImage', [
+    'type' => 'MediaItem',
+    'description' => 'Image d\'en-tête du site en tant que MediaItem',
+    'resolve' => function () {
+      if (!function_exists('get_custom_header')) {
+        error_log('[WPGraphQL Site Media] get_custom_header() non disponible');
+        return null;
+      }
+
       $header = get_custom_header();
-      return $header && !empty($header->attachment_id) ? $header->attachment_id : null;
+      if (!$header || empty($header->attachment_id)) {
+        error_log('[WPGraphQL Site Media] Aucun header image défini');
+        return null;
+      }
+
+      $post = get_post($header->attachment_id);
+      if (!$post || $post->post_type !== 'attachment') {
+        error_log('[WPGraphQL Site Media] ID header invalide ou non attachment');
+        return null;
+      }
+
+      if (class_exists('\\WPGraphQL\\Model\\Post')) {
+        return new \WPGraphQL\Model\Post($post);
+      }
+
+      return null;
+    },
+  ]);
+
+  // siteFavicon (and keep siteIcon for backward compatibility with the sample code)
+  $favicon_resolver = function () {
+    $icon_id = get_theme_mod('custom_icon');
+
+    if (!$icon_id) {
+      error_log('[WPGraphQL Site Media] Aucun icone (custom_icon) défini');
+      return null;
     }
-  );
-});
+
+    $post = get_post($icon_id);
+
+    if (!$post || $post->post_type !== 'attachment') {
+      error_log("[WPGraphQL Site Media] L'ID $icon_id n'est pas un attachment");
+      return null;
+    }
+
+    if (class_exists('\\WPGraphQL\\Model\\Post')) {
+      return new \WPGraphQL\Model\Post($post);
+    }
+
+    return null;
+  };
+
+  register_graphql_field('RootQuery', 'siteFavicon', [
+    'type' => 'MediaItem',
+    'description' => 'Favicon du site en tant que MediaItem',
+    'resolve' => $favicon_resolver,
+  ]);
+
+  // Backwards-compatible name used in the provided sample (siteIcon)
+  register_graphql_field('RootQuery', 'siteIcon', [
+    'type' => 'MediaItem',
+    'description' => 'Alias backward-compatible pour siteFavicon',
+    'resolve' => $favicon_resolver,
+  ]);
+}
+add_action('graphql_register_types', 'jbee_register_fields');
+
+// Optional: expose a small helper in the admin to check registration (no output on frontend)
+function jbee_admin_notice_check()
+{
+  if (!current_user_can('manage_options')) {
+    return;
+  }
+
+  // Only run on admin screens — no UI, we simply log if WPGraphQL is missing
+  if (!function_exists('register_graphql_field')) {
+    error_log('[WPGraphQL Site Media] WPGraphQL non détecté dans l\'admin');
+  }
+}
+add_action('admin_init', 'jbee_admin_notice_check');
+
+// End of file
