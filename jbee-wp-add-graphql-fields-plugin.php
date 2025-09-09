@@ -84,9 +84,9 @@ function jbee_register_fields()
     },
   ]);
 
-  // siteFavicon (and keep siteIcon for backward compatibility with the sample code)
+  // siteFavicon 
   $favicon_resolver = function () {
-    $icon_id = get_theme_mod('custom_icon');
+    $icon_id = get_option('site_icon');
 
     if (!$icon_id) {
       error_log('[WPGraphQL Site Media] Aucun icone (custom_icon) défini');
@@ -110,13 +110,6 @@ function jbee_register_fields()
   register_graphql_field('RootQuery', 'siteFavicon', [
     'type' => 'MediaItem',
     'description' => 'Favicon du site en tant que MediaItem',
-    'resolve' => $favicon_resolver,
-  ]);
-
-  // Backwards-compatible name used in the provided sample (siteIcon)
-  register_graphql_field('RootQuery', 'siteIcon', [
-    'type' => 'MediaItem',
-    'description' => 'Alias backward-compatible pour siteFavicon',
     'resolve' => $favicon_resolver,
   ]);
 }
